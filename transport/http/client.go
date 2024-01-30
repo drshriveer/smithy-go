@@ -59,7 +59,7 @@ func (c ClientHandler) Handle(ctx context.Context, input interface{}) (
 		core:   builtRequest.Body,
 	}
 	builtRequest.Body = wrapped
-	log.Printf("[%d] GAVIN! builtRequest.Body %+T", wrapped.id, wrapped.core)
+	// log.Printf("[%d] GAVIN! builtRequest.Body %+T", wrapped.id, wrapped.core)
 	if err := ValidateEndpointHost(builtRequest.Host); err != nil {
 		return nil, metadata, err
 	}
