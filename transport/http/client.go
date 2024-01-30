@@ -3,9 +3,14 @@ package http
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
+	"math/rand"
 	"net/http"
+	"runtime/debug"
+	"sync/atomic"
 
-	smithy "github.com/aws/smithy-go"
+	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
 )
 
@@ -48,6 +53,13 @@ func (c ClientHandler) Handle(ctx context.Context, input interface{}) (
 	}
 
 	builtRequest := req.Build(ctx)
+	wrapped := &bodyWrapper{
+		id:     rand.Uint64(),
+		closed: atomic.Bool{},
+		core:   builtRequest.Body,
+	}
+	builtRequest.Body = wrapped
+	log.Printf("[%d] GAVIN! builtRequest.Body %+T", wrapped.id, wrapped.core)
 	if err := ValidateEndpointHost(builtRequest.Host); err != nil {
 		return nil, metadata, err
 	}
@@ -75,9 +87,9 @@ func (c ClientHandler) Handle(ctx context.Context, input interface{}) (
 	// HTTP RoundTripper *should* close the request body. But this may not happen in a timely manner.
 	// So instead Smithy *Request Build wraps the body to be sent in a safe closer that will clear the
 	// stream reference so that it can be safely reused.
-	// if builtRequest.Body != nil {
-	// 	_ = builtRequest.Body.Close()
-	// }
+	if builtRequest.Body != nil {
+		_ = builtRequest.Body.Close()
+	}
 
 	return &Response{Response: resp}, metadata, err
 }
@@ -117,4 +129,30 @@ func (NopClient) Do(r *http.Request) (*http.Response, error) {
 		Header:     http.Header{},
 		Body:       http.NoBody,
 	}, nil
+}
+
+type bodyWrapper struct {
+	id     uint64
+	closed atomic.Bool
+	core   io.ReadCloser
+}
+
+func (bw *bodyWrapper) Read(p []byte) (n int, err error) {
+	if !bw.closed.Load() {
+		log.Printf("[%d] GAVIN! ALREADY CLOSED\n %s", bw.id, string(debug.Stack()))
+	}
+	n, err = bw.core.Read(p)
+	if err != nil {
+		log.Printf("[%d] GAVIN! READ ERROR: err %+v \n %s", bw.id, err, string(debug.Stack()))
+	}
+	return n, err
+}
+func (bw *bodyWrapper) Close() error {
+	bw.closed.Store(true)
+	log.Printf("[%d] GAVIN! CLOSE CALLED FROM\n %s", bw.id, string(debug.Stack()))
+	err := bw.core.Close()
+	if err != nil {
+		log.Printf("[%d] GAVIN! CLOSE returned ERROR: err %+v \n %s", bw.id, err, string(debug.Stack()))
+	}
+	return err
 }
