@@ -2,17 +2,20 @@ package http
 
 import (
 	"context"
-	"github.com/aws/smithy-go/logging"
-	"github.com/aws/smithy-go/middleware"
 	"io"
 	"io/ioutil"
+
+	"github.com/aws/smithy-go/logging"
+	"github.com/aws/smithy-go/middleware"
 )
+
+// GAVIN! this is where bad things begin to happen.
 
 // AddErrorCloseResponseBodyMiddleware adds the middleware to automatically
 // close the response body of an operation request if the request response
 // failed.
 func AddErrorCloseResponseBodyMiddleware(stack *middleware.Stack) error {
-	return stack.Deserialize.Insert(&errorCloseResponseBodyMiddleware{}, "OperationDeserializer", middleware.Before)
+	return stack.Deserialize.Insert(&errorCloseResponseBodyMiddleware{}, "OperationDeserializer", middleware.After)
 }
 
 type errorCloseResponseBodyMiddleware struct{}
@@ -43,7 +46,7 @@ func (m *errorCloseResponseBodyMiddleware) HandleDeserialize(
 // the response body of an operation request, after the response had been
 // deserialized.
 func AddCloseResponseBodyMiddleware(stack *middleware.Stack) error {
-	return stack.Deserialize.Insert(&closeResponseBody{}, "OperationDeserializer", middleware.Before)
+	return stack.Deserialize.Insert(&closeResponseBody{}, "OperationDeserializer", middleware.After)
 }
 
 type closeResponseBody struct{}
@@ -66,12 +69,14 @@ func (m *closeResponseBody) HandleDeserialize(
 		// Consume the full body to prevent TCP connection resets on some platforms
 		_, copyErr := io.Copy(ioutil.Discard, resp.Body)
 		if copyErr != nil {
-			middleware.GetLogger(ctx).Logf(logging.Warn, "failed to discard remaining HTTP response body, this may affect connection reuse")
+			middleware.GetLogger(ctx).Logf(logging.Warn,
+				"failed to discard remaining HTTP response body, this may affect connection reuse")
 		}
 
 		closeErr := resp.Body.Close()
 		if closeErr != nil {
-			middleware.GetLogger(ctx).Logf(logging.Warn, "failed to close HTTP response body, this may affect connection reuse")
+			middleware.GetLogger(ctx).Logf(logging.Warn,
+				"failed to close HTTP response body, this may affect connection reuse")
 		}
 	}
 
